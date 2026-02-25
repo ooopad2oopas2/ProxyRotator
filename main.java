@@ -63,3 +63,68 @@ enum PRX_EventName {
     RegionSlotAssigned,
     HealthCheckCompleted,
     RotationSkippedStale,
+    PoolDrained,
+    GateOpened,
+    AnchorDropped,
+    WaveCommitted
+}
+
+// ============== Exceptions ==============
+
+class PRX_EmptyPool extends RuntimeException { public PRX_EmptyPool() { super("PRX_EmptyPool"); } }
+class PRX_InvalidEndpoint extends RuntimeException { public PRX_InvalidEndpoint() { super("PRX_InvalidEndpoint"); } }
+class PRX_StaleRotation extends RuntimeException { public PRX_StaleRotation() { super("PRX_StaleRotation"); } }
+class PRX_NotHubController extends RuntimeException { public PRX_NotHubController() { super("PRX_NotHubController"); } }
+class PRX_NotCyclerKeeper extends RuntimeException { public PRX_NotCyclerKeeper() { super("PRX_NotCyclerKeeper"); } }
+class PRX_MaxPoolReached extends RuntimeException { public PRX_MaxPoolReached() { super("PRX_MaxPoolReached"); } }
+class PRX_MaxRegionsReached extends RuntimeException { public PRX_MaxRegionsReached() { super("PRX_MaxRegionsReached"); } }
+class PRX_EndpointAlreadyExists extends RuntimeException { public PRX_EndpointAlreadyExists() { super("PRX_EndpointAlreadyExists"); } }
+class PRX_EndpointNotFound extends RuntimeException { public PRX_EndpointNotFound() { super("PRX_EndpointNotFound"); } }
+class PRX_RegionNotFound extends RuntimeException { public PRX_RegionNotFound() { super("PRX_RegionNotFound"); } }
+class PRX_ZeroAddress extends RuntimeException { public PRX_ZeroAddress() { super("PRX_ZeroAddress"); } }
+class PRX_ArrayLengthMismatch extends RuntimeException { public PRX_ArrayLengthMismatch() { super("PRX_ArrayLengthMismatch"); } }
+class PRX_BatchTooLarge extends RuntimeException { public PRX_BatchTooLarge() { super("PRX_BatchTooLarge"); } }
+class PRX_RotationPaused extends RuntimeException { public PRX_RotationPaused() { super("PRX_RotationPaused"); } }
+class PRX_InvalidRegionId extends RuntimeException { public PRX_InvalidRegionId() { super("PRX_InvalidRegionId"); } }
+class PRX_HealthCheckFailed extends RuntimeException { public PRX_HealthCheckFailed() { super("PRX_HealthCheckFailed"); } }
+
+// ============== DTOs ==============
+
+final class ProxySlotDTO {
+    final String endpointId;
+    final String host;
+    final int port;
+    final String regionCode;
+    final int regionId;
+    final long lastRotatedAt;
+    final boolean healthy;
+    final long requestCount;
+
+    ProxySlotDTO(String endpointId, String host, int port, String regionCode, int regionId,
+                 long lastRotatedAt, boolean healthy, long requestCount) {
+        this.endpointId = endpointId;
+        this.host = host;
+        this.port = port;
+        this.regionCode = regionCode;
+        this.regionId = regionId;
+        this.lastRotatedAt = lastRotatedAt;
+        this.healthy = healthy;
+        this.requestCount = requestCount;
+    }
+}
+
+final class RegionDTO {
+    final int regionId;
+    final String regionCode;
+    final String nameHash;
+    final int slotCount;
+    final long totalRequests;
+    final long lastCycleAt;
+
+    RegionDTO(int regionId, String regionCode, String nameHash, int slotCount, long totalRequests, long lastCycleAt) {
+        this.regionId = regionId;
+        this.regionCode = regionCode;
+        this.nameHash = nameHash;
+        this.slotCount = slotCount;
+        this.totalRequests = totalRequests;
+        this.lastCycleAt = lastCycleAt;
