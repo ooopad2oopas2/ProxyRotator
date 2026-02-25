@@ -193,3 +193,68 @@ public final class ProxyRotatorEngine {
         if (cyclerKeeper == null || cyclerKeeper.isEmpty()) throw new PRX_ZeroAddress();
         if (anchorRelay == null || anchorRelay.isEmpty()) throw new PRX_ZeroAddress();
         this.hubController = hubController;
+        this.cyclerKeeper = cyclerKeeper;
+        this.anchorRelay = anchorRelay;
+        this.deployTimeMs = System.currentTimeMillis();
+        this.rotationIntervalMs = Math.max(PRX_MIN_ROTATION_INTERVAL_MS, rotationIntervalMs);
+        this.lastRotationAt = deployTimeMs;
+    }
+
+    public void addEndpoint(String endpointId, String host, int port, String regionCode, String caller) {
+        if (!hubController.equals(caller) && !cyclerKeeper.equals(caller)) throw new PRX_NotHubController();
+        if (endpointId == null || endpointId.isEmpty()) throw new PRX_InvalidEndpoint();
+        if (host == null || host.isEmpty()) throw new PRX_InvalidEndpoint();
+        if (endpoints.containsKey(endpointId)) throw new PRX_EndpointAlreadyExists();
+        if (endpointIds.size() >= ProxyRotatorCore.PRX_MAX_POOL_SIZE) throw new PRX_MaxPoolReached();
+        int regionId = resolveOrCreateRegion(regionCode, caller);
+        long now = System.currentTimeMillis();
+        ProxySlotDTO slot = new ProxySlotDTO(endpointId, host, port, regionCode, regionId, now, true, 0L);
+        endpoints.put(endpointId, slot);
+        endpointIds.add(endpointId);
+        endpointToRegion.put(endpointId, regionId);
+        regionToEndpoints.computeIfAbsent(regionId, k -> Collections.synchronizedList(new ArrayList<>())).add(endpointId);
+        endpointLastHealth.put(endpointId, now);
+        endpointRequestCount.put(endpointId, 0L);
+        endpointHealthy.put(endpointId, true);
+    }
+
+    private int resolveOrCreateRegion(String regionCode, String caller) {
+        for (Map.Entry<Integer, RegionDTO> e : regions.entrySet()) {
+            if (regionCode.equals(e.getValue().regionCode)) return e.getKey();
+        }
+        if (regionCount.get() >= ProxyRotatorCore.PRX_MAX_REGIONS) throw new PRX_MaxRegionsReached();
+        int id = regionCount.getAndIncrement();
+        String nameHash = ProxyRotatorCore.prxSha256Hex("region:" + regionCode);
+        regions.put(id, new RegionDTO(id, regionCode, nameHash, 0, 0L, System.currentTimeMillis()));
+        regionIds.add(id);
+        return id;
+    }
+
+    public void removeEndpoint(String endpointId, String caller) {
+        if (!hubController.equals(caller) && !cyclerKeeper.equals(caller)) throw new PRX_NotHubController();
+        if (!endpoints.containsKey(endpointId)) throw new PRX_EndpointNotFound();
+        Integer rid = endpointToRegion.get(endpointId);
+        endpoints.remove(endpointId);
+        endpointIds.remove(endpointId);
+        endpointToRegion.remove(endpointId);
+        endpointLastHealth.remove(endpointId);
+        endpointRequestCount.remove(endpointId);
+        endpointHealthy.remove(endpointId);
+        if (rid != null && regionToEndpoints.containsKey(rid)) {
+            regionToEndpoints.get(rid).remove(endpointId);
+        }
+    }
+
+    public void rotate(String caller) {
+        if (rotationPaused) throw new PRX_RotationPaused();
+        if (!cyclerKeeper.equals(caller) && !hubController.equals(caller)) throw new PRX_NotCyclerKeeper();
+        if (endpointIds.isEmpty()) throw new PRX_EmptyPool();
+        long now = System.currentTimeMillis();
+        if (now - lastRotationAt < ProxyRotatorCore.PRX_MIN_ROTATION_INTERVAL_MS) throw new PRX_StaleRotation();
+        lastRotationAt = now;
+        totalRotations.incrementAndGet();
+        int next = (currentSlotIndex.incrementAndGet() % endpointIds.size() + endpointIds.size()) % endpointIds.size();
+        currentSlotIndex.set(next);
+    }
+
+    public void rotateRegion(int regionId, String caller) {
