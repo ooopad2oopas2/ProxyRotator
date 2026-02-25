@@ -128,3 +128,68 @@ final class RegionDTO {
         this.slotCount = slotCount;
         this.totalRequests = totalRequests;
         this.lastCycleAt = lastCycleAt;
+    }
+}
+
+final class RotationStatsDTO {
+    final int totalRotations;
+    final int totalEndpoints;
+    final int totalRegions;
+    final long uptimeMs;
+    final long lastRotationAt;
+    final boolean rotationPaused;
+
+    RotationStatsDTO(int totalRotations, int totalEndpoints, int totalRegions, long uptimeMs, long lastRotationAt, boolean rotationPaused) {
+        this.totalRotations = totalRotations;
+        this.totalEndpoints = totalEndpoints;
+        this.totalRegions = totalRegions;
+        this.uptimeMs = uptimeMs;
+        this.lastRotationAt = lastRotationAt;
+        this.rotationPaused = rotationPaused;
+    }
+}
+
+final class HealthReportDTO {
+    final String endpointId;
+    final boolean healthy;
+    final long checkedAt;
+    final int latencyMs;
+    final String failureReason;
+
+    HealthReportDTO(String endpointId, boolean healthy, long checkedAt, int latencyMs, String failureReason) {
+        this.endpointId = endpointId;
+        this.healthy = healthy;
+        this.checkedAt = checkedAt;
+        this.latencyMs = latencyMs;
+        this.failureReason = failureReason != null ? failureReason : "";
+    }
+}
+
+// ============== Engine ==============
+
+public final class ProxyRotatorEngine {
+    private final String hubController;
+    private final String cyclerKeeper;
+    private final String anchorRelay;
+    private final long deployTimeMs;
+    private final long rotationIntervalMs;
+    private final AtomicLong totalRotations = new AtomicLong(0);
+    private final AtomicInteger currentSlotIndex = new AtomicInteger(0);
+    private final Map<String, ProxySlotDTO> endpoints = new ConcurrentHashMap<>();
+    private final List<String> endpointIds = Collections.synchronizedList(new ArrayList<>());
+    private final Map<String, Integer> endpointToRegion = new ConcurrentHashMap<>();
+    private final Map<Integer, List<String>> regionToEndpoints = new ConcurrentHashMap<>();
+    private final Map<Integer, RegionDTO> regions = new ConcurrentHashMap<>();
+    private final List<Integer> regionIds = Collections.synchronizedList(new ArrayList<>());
+    private final AtomicInteger regionCount = new AtomicInteger(0);
+    private final Map<String, Long> endpointLastHealth = new ConcurrentHashMap<>();
+    private final Map<String, Long> endpointRequestCount = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> endpointHealthy = new ConcurrentHashMap<>();
+    private volatile boolean rotationPaused;
+    private volatile long lastRotationAt;
+
+    public ProxyRotatorEngine(String hubController, String cyclerKeeper, String anchorRelay, long rotationIntervalMs) {
+        if (hubController == null || hubController.isEmpty()) throw new PRX_ZeroAddress();
+        if (cyclerKeeper == null || cyclerKeeper.isEmpty()) throw new PRX_ZeroAddress();
+        if (anchorRelay == null || anchorRelay.isEmpty()) throw new PRX_ZeroAddress();
+        this.hubController = hubController;
