@@ -258,3 +258,68 @@ public final class ProxyRotatorEngine {
     }
 
     public void rotateRegion(int regionId, String caller) {
+        if (rotationPaused) throw new PRX_RotationPaused();
+        if (!cyclerKeeper.equals(caller) && !hubController.equals(caller)) throw new PRX_NotCyclerKeeper();
+        if (!regions.containsKey(regionId)) throw new PRX_RegionNotFound();
+        List<String> list = regionToEndpoints.get(regionId);
+        if (list == null || list.isEmpty()) throw new PRX_EmptyPool();
+        lastRotationAt = System.currentTimeMillis();
+        totalRotations.incrementAndGet();
+    }
+
+    public ProxySlotDTO getCurrentSlot() {
+        if (endpointIds.isEmpty()) return null;
+        int idx = (currentSlotIndex.get() % endpointIds.size() + endpointIds.size()) % endpointIds.size();
+        String id = endpointIds.get(idx);
+        return endpoints.get(id);
+    }
+
+    public ProxySlotDTO getNextSlot() {
+        if (endpointIds.isEmpty()) return null;
+        int idx = (currentSlotIndex.get() + 1) % endpointIds.size();
+        if (idx < 0) idx += endpointIds.size();
+        String id = endpointIds.get(idx);
+        return endpoints.get(id);
+    }
+
+    public ProxySlotDTO getSlotForRegion(int regionId) {
+        List<String> list = regionToEndpoints.get(regionId);
+        if (list == null || list.isEmpty()) return null;
+        int idx = (int) (System.nanoTime() % list.size());
+        if (idx < 0) idx = -idx;
+        String id = list.get(idx);
+        return endpoints.get(id);
+    }
+
+    public void recordRequest(String endpointId) {
+        endpointRequestCount.merge(endpointId, 1L, Long::sum);
+    }
+
+    public void setHealth(String endpointId, boolean healthy, int latencyMs, String caller) {
+        if (!cyclerKeeper.equals(caller) && !anchorRelay.equals(caller)) return;
+        if (!endpoints.containsKey(endpointId)) return;
+        endpointLastHealth.put(endpointId, System.currentTimeMillis());
+        endpointHealthy.put(endpointId, healthy);
+    }
+
+    public void pauseRotation(String caller) {
+        if (!hubController.equals(caller) && !cyclerKeeper.equals(caller)) throw new PRX_NotHubController();
+        rotationPaused = true;
+    }
+
+    public void unpauseRotation(String caller) {
+        if (!hubController.equals(caller) && !cyclerKeeper.equals(caller)) throw new PRX_NotHubController();
+        rotationPaused = false;
+    }
+
+    public boolean isRotationPaused() { return rotationPaused; }
+    public ProxySlotDTO getEndpoint(String endpointId) { return endpoints.get(endpointId); }
+    public boolean endpointExists(String endpointId) { return endpoints.containsKey(endpointId); }
+    public List<String> getEndpointIds() { return new ArrayList<>(endpointIds); }
+    public int endpointCount() { return endpointIds.size(); }
+    public RegionDTO getRegion(int regionId) { return regions.get(regionId); }
+    public List<Integer> getRegionIds() { return new ArrayList<>(regionIds); }
+    public int regionCount() { return regionCount.get(); }
+    public long getTotalRotations() { return totalRotations.get(); }
+    public long getUptimeMs() { return System.currentTimeMillis() - deployTimeMs; }
+    public long getLastRotationAt() { return lastRotationAt; }
