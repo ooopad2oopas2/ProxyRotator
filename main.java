@@ -453,3 +453,68 @@ final class ProxyRotatorApiHandlers {
                 m.put("slotCount", r.slotCount);
                 m.put("totalRequests", r.totalRequests);
                 m.put("lastCycleAt", r.lastCycleAt);
+                items.add(m);
+            }
+        }
+        Map<String, Object> out = new HashMap<>();
+        out.put("regions", items);
+        out.put("total", engine.regionCount());
+        return out;
+    }
+}
+
+// ============== Batch operations ==============
+
+final class ProxyRotatorBatch {
+    private ProxyRotatorBatch() {}
+    static void addEndpointsBatch(ProxyRotatorEngine engine, List<String> endpointIds, List<String> hosts,
+                                  List<Integer> ports, List<String> regionCodes, String caller) {
+        if (endpointIds.size() != hosts.size() || endpointIds.size() != ports.size() || endpointIds.size() != regionCodes.size())
+            throw new PRX_ArrayLengthMismatch();
+        if (endpointIds.size() > ProxyRotatorCore.PRX_BATCH_ROTATE) throw new PRX_BatchTooLarge();
+        for (int i = 0; i < endpointIds.size(); i++) {
+            engine.addEndpoint(endpointIds.get(i), hosts.get(i), ports.get(i), regionCodes.get(i), caller);
+        }
+    }
+}
+
+// ============== Health checker ==============
+
+final class ProxyRotatorHealthChecker {
+    private ProxyRotatorHealthChecker() {}
+    static HealthReportDTO checkEndpoint(ProxyRotatorEngine engine, String endpointId, String caller) {
+        if (!engine.endpointExists(endpointId)) return null;
+        long now = System.currentTimeMillis();
+        boolean healthy = new SecureRandom().nextInt(100) > 15;
+        int latencyMs = 20 + new SecureRandom().nextInt(180);
+        engine.setHealth(endpointId, healthy, latencyMs, caller);
+        return new HealthReportDTO(endpointId, healthy, now, latencyMs, healthy ? null : "simulated_failure");
+    }
+    static List<HealthReportDTO> checkAll(ProxyRotatorEngine engine, String caller) {
+        List<HealthReportDTO> out = new ArrayList<>();
+        for (String id : engine.getEndpointIds()) {
+            HealthReportDTO r = checkEndpoint(engine, id, caller);
+            if (r != null) out.add(r);
+        }
+        return out;
+    }
+}
+
+// ============== Event logger ==============
+
+final class ProxyRotatorEventLog {
+    private static final List<String> log = Collections.synchronizedList(new ArrayList<>());
+    private static final int MAX_LOG = 500;
+    static void emit(PRX_EventName event, String detail) {
+        String line = System.currentTimeMillis() + " " + event.name() + " " + (detail != null ? detail : "");
+        log.add(line);
+        while (log.size() > MAX_LOG) log.remove(0);
+    }
+    static List<String> getRecent(int n) {
+        int size = log.size();
+        if (n <= 0 || size == 0) return Collections.emptyList();
+        int start = Math.max(0, size - n);
+        return new ArrayList<>(log.subList(start, size));
+    }
+}
+
