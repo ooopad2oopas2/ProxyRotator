@@ -1233,3 +1233,68 @@ final class ProxyRotatorGeoSim {
     static String randomCountryCode() {
         return COUNTRY_CODES[new SecureRandom().nextInt(COUNTRY_CODES.length)];
     }
+}
+
+// ============== Rotation scheduler sim ==============
+
+final class ProxyRotatorSchedulerSim {
+    private final ProxyRotatorEngine engine;
+    private final String cycler;
+    private final long intervalMs;
+    private volatile long lastRun;
+
+    ProxyRotatorSchedulerSim(ProxyRotatorEngine engine, String cycler, long intervalMs) {
+        this.engine = engine;
+        this.cycler = cycler;
+        this.intervalMs = Math.max(ProxyRotatorCore.PRX_MIN_ROTATION_INTERVAL_MS, intervalMs);
+        this.lastRun = System.currentTimeMillis();
+    }
+
+    public boolean maybeRotate() {
+        long now = System.currentTimeMillis();
+        if (now - lastRun < intervalMs) return false;
+        if (engine.isRotationPaused() || engine.endpointCount() == 0) return false;
+        try {
+            engine.rotate(cycler);
+            lastRun = now;
+            ProxyRotatorEventLog.emit(PRX_EventName.ProxySlotRotated, null);
+            return true;
+        } catch (Exception e) {
+            ProxyRotatorEventLog.emit(PRX_EventName.RotationSkippedStale, e.getMessage());
+            return false;
+        }
+    }
+}
+
+// ============== Endpoint priority queue ==============
+
+final class ProxyRotatorPriorityQueue {
+    private final ProxyRotatorEngine engine;
+    private final Map<String, Integer> endpointPriority = new ConcurrentHashMap<>();
+
+    ProxyRotatorPriorityQueue(ProxyRotatorEngine engine) {
+        this.engine = engine;
+    }
+
+    public void setPriority(String endpointId, int priority) {
+        if (engine.endpointExists(endpointId)) endpointPriority.put(endpointId, priority);
+    }
+
+    public ProxySlotDTO getHighestPriorityHealthy() {
+        List<ProxySlotDTO> healthy = ProxyRotatorEngineViews.getHealthyEndpoints(engine);
+        if (healthy.isEmpty()) return engine.getCurrentSlot();
+        return healthy.stream()
+            .max(Comparator.comparingInt(s -> endpointPriority.getOrDefault(s.endpointId, 0)))
+            .orElse(engine.getCurrentSlot());
+    }
+}
+
+// ============== Audit trail ==============
+
+final class ProxyRotatorAuditTrail {
+    private static final List<EndpointAuditDTO> trail = Collections.synchronizedList(new ArrayList<>());
+    private static final int MAX_AUDIT = 1000;
+
+    static void record(String endpointId, String action, String actorAddress) {
+        trail.add(new EndpointAuditDTO(endpointId, action, System.currentTimeMillis(), actorAddress != null ? actorAddress : ""));
+        while (trail.size() > MAX_AUDIT) trail.remove(0);
