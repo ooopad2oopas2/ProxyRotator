@@ -1363,3 +1363,68 @@ final class ProxyRotatorStateExport {
     static Map<String, Object> exportState(ProxyRotatorEngine engine) {
         Map<String, Object> m = new HashMap<>();
         m.put("hubController", engine.getHubController());
+        m.put("cyclerKeeper", engine.getCyclerKeeper());
+        m.put("anchorRelay", engine.getAnchorRelay());
+        m.put("totalRotations", engine.getTotalRotations());
+        m.put("endpoints", ProxyRotatorApiHandlers.listEndpoints(engine, 0, ProxyRotatorCore.PRX_MAX_POOL_SIZE));
+        m.put("regions", ProxyRotatorApiHandlers.listRegions(engine));
+        m.put("checksum", ProxyRotatorChecksum.poolStateHash(engine));
+        return m;
+    }
+}
+
+// ============== Filter builder ==============
+
+final class ProxyRotatorFilterBuilder {
+    private boolean healthyOnly;
+    private String regionCode;
+    private Integer minPort;
+    private Integer maxPort;
+
+    ProxyRotatorFilterBuilder healthyOnly(boolean v) { healthyOnly = v; return this; }
+    ProxyRotatorFilterBuilder region(String code) { regionCode = code; return this; }
+    ProxyRotatorFilterBuilder portRange(int min, int max) { minPort = min; maxPort = max; return this; }
+
+    List<ProxySlotDTO> apply(ProxyRotatorEngine engine) {
+        List<ProxySlotDTO> list = new ArrayList<>();
+        for (String id : engine.getEndpointIds()) {
+            ProxySlotDTO s = engine.getEndpoint(id);
+            if (s == null) continue;
+            if (healthyOnly && !s.healthy) continue;
+            if (regionCode != null && !regionCode.equals(s.regionCode)) continue;
+            if (minPort != null && s.port < minPort) continue;
+            if (maxPort != null && s.port > maxPort) continue;
+            list.add(s);
+        }
+        return list;
+    }
+}
+
+// ============== Stats aggregator ==============
+
+final class ProxyRotatorStatsAggregator {
+    private final ProxyRotatorEngine engine;
+    private final ProxyRotatorMetrics metrics;
+
+    ProxyRotatorStatsAggregator(ProxyRotatorEngine engine, ProxyRotatorMetrics metrics) {
+        this.engine = engine;
+        this.metrics = metrics;
+    }
+
+    public Map<String, Object> fullReport() {
+        Map<String, Object> m = new HashMap<>();
+        m.put("rotationStats", ProxyRotatorApiHandlers.getRotationStats(engine));
+        m.put("healthSummary", ProxyRotatorApiHandlersExtended.getHealthSummary(engine));
+        m.put("poolSummary", ProxyRotatorApiHandlersExtended.getPoolSummary(engine));
+        m.put("metrics", metrics.snapshot());
+        m.put("checksum", ProxyRotatorChecksum.poolStateHash(engine));
+        return m;
+    }
+}
+
+// ============== Listener / callback interface ==============
+
+interface ProxyRotatorListener {
+    void onSlotRotated(ProxySlotDTO previous, ProxySlotDTO current);
+    void onEndpointAdded(String endpointId);
+    void onEndpointRemoved(String endpointId);
