@@ -583,3 +583,68 @@ final class ProxyRotatorEngineViews {
 // ============== Config ==============
 
 final class ProxyRotatorConfig {
+    static final String CONFIG_HUB = ProxyRotatorCore.PRX_HUB_CONTROLLER;
+    static final String CONFIG_CYCLER = ProxyRotatorCore.PRX_CYCLER_KEEPER;
+    static final String CONFIG_ANCHOR = ProxyRotatorCore.PRX_ANCHOR_RELAY;
+    static final String CONFIG_TIDE_POOL = ProxyRotatorCore.PRX_TIDE_POOL;
+    static final String CONFIG_WAVE_GATE = ProxyRotatorCore.PRX_WAVE_GATE;
+    static final String CONFIG_NEXUS = ProxyRotatorCore.PRX_SURF_NEXUS;
+    static final String CONFIG_REGION_VAULT = ProxyRotatorCore.PRX_REGION_VAULT;
+    static final String CONFIG_ORACLE = ProxyRotatorCore.PRX_ORACLE_RELAY;
+    static final int CONFIG_MAX_POOL = ProxyRotatorCore.PRX_MAX_POOL_SIZE;
+    static final int CONFIG_MAX_REGIONS = ProxyRotatorCore.PRX_MAX_REGIONS;
+    static final int CONFIG_ROTATION_MS = ProxyRotatorCore.PRX_DEFAULT_ROTATION_MS;
+}
+
+// ============== Main ==============
+
+class ProxyRotatorMain {
+    public static void main(String[] args) {
+        String hub = ProxyRotatorCore.PRX_HUB_CONTROLLER;
+        String cycler = ProxyRotatorCore.PRX_CYCLER_KEEPER;
+        String anchor = ProxyRotatorCore.PRX_ANCHOR_RELAY;
+        ProxyRotatorEngine engine = new ProxyRotatorEngine(hub, cycler, anchor, ProxyRotatorCore.PRX_DEFAULT_ROTATION_MS);
+        for (int i = 0; i < 5; i++) {
+            String epId = ProxyRotatorIdGen.nextEndpointId();
+            String region = ProxyRotatorRegionHelper.regionCodeFromIndex(i % ProxyRotatorRegionHelper.DEFAULT_REGION_CODES.length);
+            engine.addEndpoint(epId, "proxy" + i + ".surf.example.com", 8080 + i, region, hub);
+        }
+        engine.rotate(cycler);
+        ProxySlotDTO current = engine.getCurrentSlot();
+        System.out.println("ProxyRotator run OK. Current slot: " + (current != null ? current.endpointId : "none"));
+        System.out.println("Stats: " + ProxyRotatorApiHandlers.getRotationStats(engine));
+    }
+}
+
+// ============== Additional API responses ==============
+
+final class ProxyRotatorSlotResponse {
+    final Map<String, Object> current;
+    final Map<String, Object> next;
+    final RotationStatsDTO stats;
+    ProxyRotatorSlotResponse(Map<String, Object> current, Map<String, Object> next, RotationStatsDTO stats) {
+        this.current = current;
+        this.next = next;
+        this.stats = stats;
+    }
+    Map<String, Object> toMap() {
+        Map<String, Object> m = new HashMap<>();
+        m.put("current", current);
+        m.put("next", next);
+        m.put("totalRotations", stats.totalRotations);
+        m.put("totalEndpoints", stats.totalEndpoints);
+        m.put("uptimeMs", stats.uptimeMs);
+        return m;
+    }
+}
+
+// ============== Surf-from-anywhere router ==============
+
+final class SurfFromAnywhereRouter {
+    private final ProxyRotatorEngine engine;
+    private final String relayAddress;
+
+    SurfFromAnywhereRouter(ProxyRotatorEngine engine, String relayAddress) {
+        this.engine = engine;
+        this.relayAddress = relayAddress;
+    }
