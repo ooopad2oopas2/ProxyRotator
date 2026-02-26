@@ -973,3 +973,68 @@ final class LatencySnapshotDTO {
     final int p95Ms;
     final int p99Ms;
     final int sampleCount;
+    LatencySnapshotDTO(String endpointId, int p50Ms, int p95Ms, int p99Ms, int sampleCount) {
+        this.endpointId = endpointId;
+        this.p50Ms = p50Ms;
+        this.p95Ms = p95Ms;
+        this.p99Ms = p99Ms;
+        this.sampleCount = sampleCount;
+    }
+}
+
+final class PoolSummaryDTO {
+    final int totalSlots;
+    final int healthySlots;
+    final int regionCount;
+    final long totalRequestsLastHour;
+    final long lastRotationEpochMs;
+    PoolSummaryDTO(int totalSlots, int healthySlots, int regionCount, long totalRequestsLastHour, long lastRotationEpochMs) {
+        this.totalSlots = totalSlots;
+        this.healthySlots = healthySlots;
+        this.regionCount = regionCount;
+        this.totalRequestsLastHour = totalRequestsLastHour;
+        this.lastRotationEpochMs = lastRotationEpochMs;
+    }
+}
+
+final class EndpointAuditDTO {
+    final String endpointId;
+    final String action;
+    final long atEpochMs;
+    final String actorAddress;
+    EndpointAuditDTO(String endpointId, String action, long atEpochMs, String actorAddress) {
+        this.endpointId = endpointId;
+        this.action = action;
+        this.atEpochMs = atEpochMs;
+        this.actorAddress = actorAddress;
+    }
+}
+
+final class RegionWeightDTO {
+    final int regionId;
+    final String regionCode;
+    final int weightBps;
+    final int slotCount;
+    RegionWeightDTO(int regionId, String regionCode, int weightBps, int slotCount) {
+        this.regionId = regionId;
+        this.regionCode = regionCode;
+        this.weightBps = weightBps;
+        this.slotCount = slotCount;
+    }
+}
+
+// ============== Extended API handlers ==============
+
+final class ProxyRotatorApiHandlersExtended {
+    private ProxyRotatorApiHandlersExtended() {}
+    static Map<String, Object> getSlotWithRegion(ProxyRotatorEngine engine, String regionCode) {
+        for (Integer rid : engine.getRegionIds()) {
+            RegionDTO r = engine.getRegion(rid);
+            if (r != null && regionCode.equals(r.regionCode)) {
+                ProxySlotDTO slot = engine.getSlotForRegion(rid);
+                return ProxyRotatorSerialization.slotToMap(slot);
+            }
+        }
+        return ProxyRotatorSerialization.slotToMap(engine.getCurrentSlot());
+    }
+    static Map<String, Object> getHealthSummary(ProxyRotatorEngine engine) {
