@@ -323,3 +323,68 @@ public final class ProxyRotatorEngine {
     public long getTotalRotations() { return totalRotations.get(); }
     public long getUptimeMs() { return System.currentTimeMillis() - deployTimeMs; }
     public long getLastRotationAt() { return lastRotationAt; }
+    public String getHubController() { return hubController; }
+    public String getCyclerKeeper() { return cyclerKeeper; }
+    public String getAnchorRelay() { return anchorRelay; }
+    public long getRotationIntervalMs() { return rotationIntervalMs; }
+
+    public RotationStatsDTO getRotationStats() {
+        return new RotationStatsDTO(
+            (int) totalRotations.get(),
+            endpointIds.size(),
+            regionCount.get(),
+            getUptimeMs(),
+            lastRotationAt,
+            rotationPaused
+        );
+    }
+
+    public List<ProxySlotDTO> getEndpointsPaginated(int offset, int limit) {
+        int total = endpointIds.size();
+        if (offset >= total) return Collections.emptyList();
+        if (limit > ProxyRotatorCore.PRX_VIEW_PAGE) limit = ProxyRotatorCore.PRX_VIEW_PAGE;
+        int end = Math.min(offset + limit, total);
+        List<ProxySlotDTO> out = new ArrayList<>();
+        for (int i = offset; i < end; i++) {
+            String id = endpointIds.get(i);
+            ProxySlotDTO dto = endpoints.get(id);
+            if (dto != null) {
+                long req = endpointRequestCount.getOrDefault(id, 0L);
+                boolean healthy = endpointHealthy.getOrDefault(id, true);
+                out.add(new ProxySlotDTO(dto.endpointId, dto.host, dto.port, dto.regionCode, dto.regionId,
+                    dto.lastRotatedAt, healthy, req));
+            }
+        }
+        return out;
+    }
+
+    public List<String> getEndpointIdsByRegion(int regionId, int offset, int limit) {
+        List<String> list = regionToEndpoints.get(regionId);
+        if (list == null) return Collections.emptyList();
+        list = new ArrayList<>(list);
+        int total = list.size();
+        if (offset >= total) return Collections.emptyList();
+        if (limit > ProxyRotatorCore.PRX_VIEW_PAGE) limit = ProxyRotatorCore.PRX_VIEW_PAGE;
+        int end = Math.min(offset + limit, total);
+        return new ArrayList<>(list.subList(offset, end));
+    }
+}
+
+// ============== Validation ==============
+
+final class ProxyRotatorValidation {
+    private ProxyRotatorValidation() {}
+    static boolean isValidEVMAddress(String addr) {
+        if (addr == null) return false;
+        String a = addr.startsWith("0x") ? addr.substring(2) : addr;
+        return a.length() == 40 && a.chars().allMatch(c -> Character.digit(c, 16) >= 0);
+    }
+    static boolean isValidEndpointId(String id) {
+        return id != null && id.length() >= 8 && id.length() <= 128;
+    }
+    static boolean isValidPort(int port) {
+        return port > 0 && port <= 65535;
+    }
+    static boolean isValidRegionCode(String code) {
+        return code != null && code.length() >= 2 && code.length() <= 16;
+    }
