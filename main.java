@@ -1103,3 +1103,68 @@ final class ProxyRotatorRegionWeight {
     ProxyRotatorRegionWeight(ProxyRotatorEngine engine) {
         this.engine = engine;
         for (Integer rid : engine.getRegionIds()) {
+            regionWeightBps.put(rid, 1000);
+        }
+    }
+
+    public void setWeight(int regionId, int weightBps) {
+        if (engine.getRegion(regionId) != null) regionWeightBps.put(regionId, Math.max(0, Math.min(10000, weightBps)));
+    }
+
+    public int getWeight(int regionId) {
+        return regionWeightBps.getOrDefault(regionId, 1000);
+    }
+
+    public List<RegionWeightDTO> getAllWeights() {
+        List<RegionWeightDTO> out = new ArrayList<>();
+        for (Integer rid : engine.getRegionIds()) {
+            RegionDTO r = engine.getRegion(rid);
+            if (r != null) {
+                int slots = engine.getEndpointIdsByRegion(rid, 0, Integer.MAX_VALUE).size();
+                out.add(new RegionWeightDTO(rid, r.regionCode, regionWeightBps.getOrDefault(rid, 1000), slots));
+            }
+        }
+        return out;
+    }
+
+    public ProxySlotDTO selectByWeight() {
+        List<RegionWeightDTO> weights = getAllWeights();
+        int totalBps = 0;
+        for (RegionWeightDTO w : weights) totalBps += w.weightBps;
+        if (totalBps <= 0) return engine.getCurrentSlot();
+        int r = new SecureRandom().nextInt(totalBps);
+        for (RegionWeightDTO w : weights) {
+            if (r < w.weightBps) return engine.getSlotForRegion(w.regionId);
+            r -= w.weightBps;
+        }
+        return engine.getCurrentSlot();
+    }
+}
+
+// ============== Sticky session helper ==============
+
+final class ProxyRotatorStickySession {
+    private final Map<String, String> sessionToEndpoint = new ConcurrentHashMap<>();
+    private final long stickyTtlMs;
+    private final Map<String, Long> sessionExpiry = new ConcurrentHashMap<>();
+
+    ProxyRotatorStickySession(long stickyTtlMs) {
+        this.stickyTtlMs = stickyTtlMs;
+    }
+
+    public ProxySlotDTO resolve(ProxyRotatorEngine engine, String sessionId) {
+        if (sessionId == null || sessionId.isEmpty()) return engine.getCurrentSlot();
+        Long exp = sessionExpiry.get(sessionId);
+        if (exp != null && System.currentTimeMillis() > exp) {
+            sessionToEndpoint.remove(sessionId);
+            sessionExpiry.remove(sessionId);
+            return engine.getCurrentSlot();
+        }
+        String epId = sessionToEndpoint.get(sessionId);
+        if (epId != null && engine.endpointExists(epId)) {
+            return engine.getEndpoint(epId);
+        }
+        ProxySlotDTO slot = engine.getCurrentSlot();
+        if (slot != null) {
+            sessionToEndpoint.put(sessionId, slot.endpointId);
+            sessionExpiry.put(sessionId, System.currentTimeMillis() + stickyTtlMs);
