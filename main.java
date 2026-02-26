@@ -843,3 +843,68 @@ final class ProxyRotatorIntegrationAdapter {
             case "healthy":
                 return router.routeHealthyOnly();
             default:
+                return router.routeRoundRobin();
+        }
+    }
+}
+
+// ============== Serialization helpers ==============
+
+final class ProxyRotatorSerialization {
+    private ProxyRotatorSerialization() {}
+    static Map<String, Object> slotToMap(ProxySlotDTO s) {
+        if (s == null) return Collections.emptyMap();
+        Map<String, Object> m = new HashMap<>();
+        m.put("endpointId", s.endpointId);
+        m.put("host", s.host);
+        m.put("port", s.port);
+        m.put("regionCode", s.regionCode);
+        m.put("regionId", s.regionId);
+        m.put("lastRotatedAt", s.lastRotatedAt);
+        m.put("healthy", s.healthy);
+        m.put("requestCount", s.requestCount);
+        return m;
+    }
+    static Map<String, Object> regionToMap(RegionDTO r) {
+        if (r == null) return Collections.emptyMap();
+        Map<String, Object> m = new HashMap<>();
+        m.put("regionId", r.regionId);
+        m.put("regionCode", r.regionCode);
+        m.put("nameHash", r.nameHash);
+        m.put("slotCount", r.slotCount);
+        m.put("totalRequests", r.totalRequests);
+        m.put("lastCycleAt", r.lastCycleAt);
+        return m;
+    }
+}
+
+// ============== Rate limiter ==============
+
+final class ProxyRotatorRateLimiter {
+    private final Map<String, long[]> keyToTimestamps = new ConcurrentHashMap<>();
+    private final int maxRequestsPerWindow;
+    private final long windowMs;
+
+    ProxyRotatorRateLimiter(int maxRequestsPerWindow, long windowMs) {
+        this.maxRequestsPerWindow = maxRequestsPerWindow;
+        this.windowMs = windowMs;
+    }
+
+    public boolean allow(String key) {
+        long now = System.currentTimeMillis();
+        long[] timestamps = keyToTimestamps.computeIfAbsent(key, k -> new long[maxRequestsPerWindow + 1]);
+        int count = (int) timestamps[0];
+        for (int i = 1; i <= count; i++) {
+            if (now - timestamps[i] > windowMs) {
+                timestamps[i] = timestamps[count];
+                count--;
+                i--;
+            }
+        }
+        if (count >= maxRequestsPerWindow) return false;
+        timestamps[0] = count + 1;
+        timestamps[count + 1] = now;
+        return true;
+    }
+}
+
