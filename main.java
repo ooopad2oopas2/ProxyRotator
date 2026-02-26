@@ -1168,3 +1168,68 @@ final class ProxyRotatorStickySession {
         if (slot != null) {
             sessionToEndpoint.put(sessionId, slot.endpointId);
             sessionExpiry.put(sessionId, System.currentTimeMillis() + stickyTtlMs);
+        }
+        return slot;
+    }
+
+    public void clear(String sessionId) {
+        sessionToEndpoint.remove(sessionId);
+        sessionExpiry.remove(sessionId);
+    }
+}
+
+// ============== Backup slot resolver ==============
+
+final class ProxyRotatorBackupResolver {
+    private final ProxyRotatorEngine engine;
+    private final int maxFallbackAttempts;
+
+    ProxyRotatorBackupResolver(ProxyRotatorEngine engine, int maxFallbackAttempts) {
+        this.engine = engine;
+        this.maxFallbackAttempts = Math.max(1, Math.min(maxFallbackAttempts, engine.endpointCount()));
+    }
+
+    public ProxySlotDTO resolveWithFallback(ProxyRotatorEngine engine, String preferredRegion) {
+        ProxySlotDTO primary = null;
+        for (Integer rid : engine.getRegionIds()) {
+            RegionDTO r = engine.getRegion(rid);
+            if (r != null && (preferredRegion == null || preferredRegion.equals(r.regionCode))) {
+                primary = engine.getSlotForRegion(rid);
+                break;
+            }
+        }
+        if (primary != null && primary.healthy) return primary;
+        List<ProxySlotDTO> healthy = ProxyRotatorEngineViews.getHealthyEndpoints(engine);
+        if (healthy.isEmpty()) return engine.getCurrentSlot();
+        int attempts = Math.min(maxFallbackAttempts, healthy.size());
+        return healthy.get(new SecureRandom().nextInt(attempts));
+    }
+}
+
+// ============== Geo lookup simulation ==============
+
+final class ProxyRotatorGeoSim {
+    private static final String[] COUNTRY_CODES = { "US", "CA", "DE", "NL", "SG", "JP", "BR", "AU", "UK", "FR" };
+    private static final Map<String, String> COUNTRY_TO_REGION = new HashMap<>();
+    static {
+        COUNTRY_TO_REGION.put("US", "NA-US");
+        COUNTRY_TO_REGION.put("CA", "NA-CA");
+        COUNTRY_TO_REGION.put("DE", "EU-DE");
+        COUNTRY_TO_REGION.put("NL", "EU-NL");
+        COUNTRY_TO_REGION.put("SG", "APAC-SG");
+        COUNTRY_TO_REGION.put("JP", "APAC-JP");
+        COUNTRY_TO_REGION.put("BR", "SA-BR");
+        COUNTRY_TO_REGION.put("AU", "OC-AU");
+        COUNTRY_TO_REGION.put("UK", "EU-NL");
+        COUNTRY_TO_REGION.put("FR", "EU-DE");
+    }
+
+    static String regionFromCountry(String countryCode) {
+        if (countryCode == null) return "NA-US";
+        String r = COUNTRY_TO_REGION.get(countryCode.toUpperCase());
+        return r != null ? r : "NA-US";
+    }
+
+    static String randomCountryCode() {
+        return COUNTRY_CODES[new SecureRandom().nextInt(COUNTRY_CODES.length)];
+    }
