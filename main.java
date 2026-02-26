@@ -388,3 +388,68 @@ final class ProxyRotatorValidation {
     static boolean isValidRegionCode(String code) {
         return code != null && code.length() >= 2 && code.length() <= 16;
     }
+}
+
+// ============== API Handlers ==============
+
+final class ProxyRotatorApiHandlers {
+    private ProxyRotatorApiHandlers() {}
+    static Map<String, Object> getCurrentSlot(ProxyRotatorEngine engine) {
+        ProxySlotDTO s = engine.getCurrentSlot();
+        if (s == null) return Collections.emptyMap();
+        Map<String, Object> m = new HashMap<>();
+        m.put("endpointId", s.endpointId);
+        m.put("host", s.host);
+        m.put("port", s.port);
+        m.put("regionCode", s.regionCode);
+        m.put("regionId", s.regionId);
+        m.put("lastRotatedAt", s.lastRotatedAt);
+        m.put("healthy", s.healthy);
+        m.put("requestCount", s.requestCount);
+        return m;
+    }
+    static Map<String, Object> getRotationStats(ProxyRotatorEngine engine) {
+        RotationStatsDTO r = engine.getRotationStats();
+        Map<String, Object> m = new HashMap<>();
+        m.put("totalRotations", r.totalRotations);
+        m.put("totalEndpoints", r.totalEndpoints);
+        m.put("totalRegions", r.totalRegions);
+        m.put("uptimeMs", r.uptimeMs);
+        m.put("lastRotationAt", r.lastRotationAt);
+        m.put("rotationPaused", r.rotationPaused);
+        return m;
+    }
+    static Map<String, Object> listEndpoints(ProxyRotatorEngine engine, int offset, int limit) {
+        List<ProxySlotDTO> list = engine.getEndpointsPaginated(offset, limit);
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (ProxySlotDTO s : list) {
+            Map<String, Object> m = new HashMap<>();
+            m.put("endpointId", s.endpointId);
+            m.put("host", s.host);
+            m.put("port", s.port);
+            m.put("regionCode", s.regionCode);
+            m.put("regionId", s.regionId);
+            m.put("lastRotatedAt", s.lastRotatedAt);
+            m.put("healthy", s.healthy);
+            m.put("requestCount", s.requestCount);
+            items.add(m);
+        }
+        Map<String, Object> out = new HashMap<>();
+        out.put("endpoints", items);
+        out.put("total", engine.endpointCount());
+        out.put("offset", offset);
+        out.put("limit", limit);
+        return out;
+    }
+    static Map<String, Object> listRegions(ProxyRotatorEngine engine) {
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (Integer rid : engine.getRegionIds()) {
+            RegionDTO r = engine.getRegion(rid);
+            if (r != null) {
+                Map<String, Object> m = new HashMap<>();
+                m.put("regionId", r.regionId);
+                m.put("regionCode", r.regionCode);
+                m.put("nameHash", r.nameHash);
+                m.put("slotCount", r.slotCount);
+                m.put("totalRequests", r.totalRequests);
+                m.put("lastCycleAt", r.lastCycleAt);
