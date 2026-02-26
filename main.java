@@ -713,3 +713,68 @@ final class WaveGate {
     private volatile long lastGateOpen;
 
     WaveGate(ProxyRotatorEngine engine, String gateKeeper) {
+        this.engine = engine;
+        this.gateKeeper = gateKeeper;
+        this.lastGateOpen = System.currentTimeMillis();
+    }
+
+    public boolean requestPass() {
+        long now = System.currentTimeMillis();
+        if (now - lastGateOpen >= GATE_OPEN_INTERVAL_MS) {
+            lastGateOpen = now;
+            ProxyRotatorEventLog.emit(PRX_EventName.GateOpened, null);
+            return true;
+        }
+        return false;
+    }
+
+    public void forceOpen(String caller) {
+        if (!gateKeeper.equals(caller)) return;
+        lastGateOpen = System.currentTimeMillis();
+        ProxyRotatorEventLog.emit(PRX_EventName.GateOpened, "forced");
+    }
+}
+
+// ============== Anchor relay ==============
+
+final class AnchorRelay {
+    private final ProxyRotatorEngine engine;
+    private final String relayAddr;
+    private final Map<String, Long> anchorDrops = new ConcurrentHashMap<>();
+
+    AnchorRelay(ProxyRotatorEngine engine, String relayAddr) {
+        this.engine = engine;
+        this.relayAddr = relayAddr;
+    }
+
+    public void dropAnchor(String endpointId) {
+        anchorDrops.put(endpointId, System.currentTimeMillis());
+        ProxyRotatorEventLog.emit(PRX_EventName.AnchorDropped, endpointId);
+    }
+
+    public boolean isAnchored(String endpointId) {
+        Long t = anchorDrops.get(endpointId);
+        if (t == null) return false;
+        return System.currentTimeMillis() - t < 300_000;
+    }
+
+    public void liftAnchor(String endpointId, String caller) {
+        if (!relayAddr.equals(caller)) return;
+        anchorDrops.remove(endpointId);
+    }
+}
+
+// ============== Wave committer ==============
+
+final class WaveCommitter {
+    private final ProxyRotatorEngine engine;
+    private final String keeper;
+    private final List<String> committedWaves = Collections.synchronizedList(new ArrayList<>());
+
+    WaveCommitter(ProxyRotatorEngine engine, String keeper) {
+        this.engine = engine;
+        this.keeper = keeper;
+    }
+
+    public void commitWave(String waveId, String endpointId) {
+        if (engine.endpointExists(endpointId)) {
