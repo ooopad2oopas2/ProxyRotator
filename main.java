@@ -648,3 +648,68 @@ final class SurfFromAnywhereRouter {
         this.engine = engine;
         this.relayAddress = relayAddress;
     }
+
+    public ProxySlotDTO routeByRegion(String regionCode) {
+        for (Integer rid : engine.getRegionIds()) {
+            RegionDTO r = engine.getRegion(rid);
+            if (r != null && regionCode.equals(r.regionCode))
+                return engine.getSlotForRegion(rid);
+        }
+        return engine.getCurrentSlot();
+    }
+
+    public ProxySlotDTO routeRoundRobin() {
+        engine.rotate(relayAddress);
+        return engine.getCurrentSlot();
+    }
+
+    public ProxySlotDTO routeRandom() {
+        return ProxyRotatorEngineViews.getRandomSlot(engine);
+    }
+
+    public ProxySlotDTO routeHealthyOnly() {
+        List<ProxySlotDTO> healthy = ProxyRotatorEngineViews.getHealthyEndpoints(engine);
+        if (healthy.isEmpty()) return engine.getCurrentSlot();
+        return healthy.get(new SecureRandom().nextInt(healthy.size()));
+    }
+}
+
+// ============== Tide pool manager ==============
+
+final class TidePoolManager {
+    private final ProxyRotatorEngine engine;
+    private final String keeper;
+
+    TidePoolManager(ProxyRotatorEngine engine, String keeper) {
+        this.engine = engine;
+        this.keeper = keeper;
+    }
+
+    public void refreshPool(List<String> endpointIds, List<String> hosts, List<Integer> ports, List<String> regionCodes) {
+        ProxyRotatorBatch.addEndpointsBatch(engine, endpointIds, hosts, ports, regionCodes, keeper);
+        ProxyRotatorEventLog.emit(PRX_EventName.TidePoolRefreshed, "count=" + endpointIds.size());
+    }
+
+    public void drainPool() {
+        for (String id : new ArrayList<>(engine.getEndpointIds())) {
+            try {
+                engine.removeEndpoint(id, keeper);
+            } catch (Exception ignored) {}
+        }
+        ProxyRotatorEventLog.emit(PRX_EventName.PoolDrained, null);
+    }
+
+    public int poolSize() {
+        return engine.endpointCount();
+    }
+}
+
+// ============== Wave gate ==============
+
+final class WaveGate {
+    private static final long GATE_OPEN_INTERVAL_MS = 60_000;
+    private final ProxyRotatorEngine engine;
+    private final String gateKeeper;
+    private volatile long lastGateOpen;
+
+    WaveGate(ProxyRotatorEngine engine, String gateKeeper) {
