@@ -908,3 +908,68 @@ final class ProxyRotatorRateLimiter {
     }
 }
 
+// ============== Metrics ==============
+
+final class ProxyRotatorMetrics {
+    private final ProxyRotatorEngine engine;
+    private final AtomicLong totalRequests = new AtomicLong(0);
+    private final AtomicLong failedRotations = new AtomicLong(0);
+
+    ProxyRotatorMetrics(ProxyRotatorEngine engine) {
+        this.engine = engine;
+    }
+
+    public void recordRequest() { totalRequests.incrementAndGet(); }
+    public void recordFailedRotation() { failedRotations.incrementAndGet(); }
+    public long getTotalRequests() { return totalRequests.get(); }
+    public long getFailedRotations() { return failedRotations.get(); }
+
+    public Map<String, Object> snapshot() {
+        Map<String, Object> m = new HashMap<>();
+        m.put("totalRequests", totalRequests.get());
+        m.put("failedRotations", failedRotations.get());
+        m.put("totalRotations", engine.getTotalRotations());
+        m.put("endpointCount", engine.endpointCount());
+        m.put("uptimeMs", engine.getUptimeMs());
+        return m;
+    }
+}
+
+// ============== Safe launcher (EVM mainnet style) ==============
+
+final class ProxyRotatorSafeLauncher {
+    private ProxyRotatorSafeLauncher() {}
+    static ProxyRotatorEngine launch(String hub, String cycler, String anchor) {
+        if (!ProxyRotatorValidation.isValidEVMAddress(hub)) throw new PRX_ZeroAddress();
+        if (!ProxyRotatorValidation.isValidEVMAddress(cycler)) throw new PRX_ZeroAddress();
+        if (!ProxyRotatorValidation.isValidEVMAddress(anchor)) throw new PRX_ZeroAddress();
+        return new ProxyRotatorEngine(hub, cycler, anchor, ProxyRotatorCore.PRX_DEFAULT_ROTATION_MS);
+    }
+    static ProxyRotatorEngine launchWithDefaults() {
+        return launch(ProxyRotatorCore.PRX_HUB_CONTROLLER, ProxyRotatorCore.PRX_CYCLER_KEEPER, ProxyRotatorCore.PRX_ANCHOR_RELAY);
+    }
+}
+
+// ============== Additional event types ==============
+
+final class ProxyRotatorEventTypes {
+    static final String PROXY_SLOT_ROTATED = PRX_EventName.ProxySlotRotated.name();
+    static final String ENDPOINT_CYCLED = PRX_EventName.EndpointCycled.name();
+    static final String TIDE_POOL_REFRESHED = PRX_EventName.TidePoolRefreshed.name();
+    static final String REGION_SLOT_ASSIGNED = PRX_EventName.RegionSlotAssigned.name();
+    static final String HEALTH_CHECK_COMPLETED = PRX_EventName.HealthCheckCompleted.name();
+    static final String ROTATION_SKIPPED_STALE = PRX_EventName.RotationSkippedStale.name();
+    static final String POOL_DRAINED = PRX_EventName.PoolDrained.name();
+    static final String GATE_OPENED = PRX_EventName.GateOpened.name();
+    static final String ANCHOR_DROPPED = PRX_EventName.AnchorDropped.name();
+    static final String WAVE_COMMITTED = PRX_EventName.WaveCommitted.name();
+}
+
+// ============== Additional DTOs ==============
+
+final class LatencySnapshotDTO {
+    final String endpointId;
+    final int p50Ms;
+    final int p95Ms;
+    final int p99Ms;
+    final int sampleCount;
