@@ -1493,3 +1493,68 @@ final class ProxyRotatorSlotIndex {
 
 final class ProxyRotatorWarmup {
     private ProxyRotatorWarmup() {}
+    static void warmupPool(ProxyRotatorEngine engine, String hub, int count) {
+        for (int i = 0; i < count && engine.endpointCount() < ProxyRotatorCore.PRX_MAX_POOL_SIZE; i++) {
+            String epId = ProxyRotatorIdGen.nextEndpointId();
+            String region = ProxyRotatorRegionHelper.regionCodeFromIndex(i % ProxyRotatorRegionHelper.DEFAULT_REGION_CODES.length);
+            try {
+                engine.addEndpoint(epId, "warmup-" + i + ".pool.surf", 8080 + (i % 100), region, hub);
+            } catch (Exception ignored) {}
+        }
+    }
+}
+
+// ============== Request context ==============
+
+final class ProxyRotatorRequestContext {
+    final String requestId;
+    final String preferredRegion;
+    final String sessionId;
+    final long createdAtMs;
+
+    ProxyRotatorRequestContext(String requestId, String preferredRegion, String sessionId) {
+        this.requestId = requestId != null ? requestId : ProxyRotatorCore.prxSha256Hex("req" + System.nanoTime()).substring(0, 16);
+        this.preferredRegion = preferredRegion;
+        this.sessionId = sessionId;
+        this.createdAtMs = System.currentTimeMillis();
+    }
+}
+
+// ============== Round-trip selector ==============
+
+final class ProxyRotatorRoundTripSelector {
+    private final ProxyRotatorEngine engine;
+    private final SurfFromAnywhereRouter router;
+    private final ProxyRotatorStickySession sticky;
+
+    ProxyRotatorRoundTripSelector(ProxyRotatorEngine engine, long stickyTtlMs) {
+        this.engine = engine;
+        this.router = new SurfFromAnywhereRouter(engine, ProxyRotatorCore.PRX_ORACLE_RELAY);
+        this.sticky = new ProxyRotatorStickySession(stickyTtlMs);
+    }
+
+    public ProxySlotDTO select(ProxyRotatorRequestContext ctx) {
+        if (ctx.sessionId != null && !ctx.sessionId.isEmpty()) {
+            ProxySlotDTO s = sticky.resolve(engine, ctx.sessionId);
+            if (s != null) return s;
+        }
+        if (ctx.preferredRegion != null && !ctx.preferredRegion.isEmpty()) {
+            ProxySlotDTO s = router.routeByRegion(ctx.preferredRegion);
+            if (s != null) return s;
+        }
+        return router.routeRoundRobin();
+    }
+}
+
+// ============== Circuit breaker sim ==============
+
+final class ProxyRotatorCircuitBreaker {
+    private final Map<String, Integer> failureCount = new ConcurrentHashMap<>();
+    private final int threshold;
+    private final long resetWindowMs;
+
+    ProxyRotatorCircuitBreaker(int threshold, long resetWindowMs) {
+        this.threshold = threshold;
+        this.resetWindowMs = resetWindowMs;
+    }
+
