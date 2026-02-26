@@ -1298,3 +1298,68 @@ final class ProxyRotatorAuditTrail {
     static void record(String endpointId, String action, String actorAddress) {
         trail.add(new EndpointAuditDTO(endpointId, action, System.currentTimeMillis(), actorAddress != null ? actorAddress : ""));
         while (trail.size() > MAX_AUDIT) trail.remove(0);
+    }
+
+    static List<EndpointAuditDTO> getRecent(int n) {
+        int size = trail.size();
+        if (n <= 0 || size == 0) return Collections.emptyList();
+        int start = Math.max(0, size - n);
+        return new ArrayList<>(trail.subList(start, size));
+    }
+}
+
+// ============== Checksum / verification ==============
+
+final class ProxyRotatorChecksum {
+    private ProxyRotatorChecksum() {}
+    static String poolStateHash(ProxyRotatorEngine engine) {
+        List<String> parts = new ArrayList<>();
+        parts.add("v1");
+        parts.add(String.valueOf(engine.endpointCount()));
+        parts.add(String.valueOf(engine.regionCount()));
+        parts.add(String.valueOf(engine.getTotalRotations()));
+        for (String id : engine.getEndpointIds()) {
+            ProxySlotDTO s = engine.getEndpoint(id);
+            if (s != null) parts.add(id + ":" + s.host + ":" + s.port);
+        }
+        return ProxyRotatorCore.prxSha256Hex(String.join("|", parts));
+    }
+    static boolean verifyAddressChecksum(String addr) {
+        if (addr == null || !addr.startsWith("0x")) return false;
+        String a = addr.substring(2);
+        return a.length() == 40 && a.chars().allMatch(c -> Character.digit(c, 16) >= 0);
+    }
+}
+
+// ============== Time-window stats ==============
+
+final class ProxyRotatorTimeWindowStats {
+    private final List<Long> rotationTimestamps = Collections.synchronizedList(new ArrayList<>());
+    private final long windowMs;
+    private static final int MAX_SAMPLES = 500;
+
+    ProxyRotatorTimeWindowStats(long windowMs) {
+        this.windowMs = windowMs;
+    }
+
+    public void recordRotation() {
+        long now = System.currentTimeMillis();
+        rotationTimestamps.add(now);
+        while (rotationTimestamps.size() > MAX_SAMPLES) rotationTimestamps.remove(0);
+        rotationTimestamps.removeIf(t -> now - t > windowMs);
+    }
+
+    public int rotationsInWindow() {
+        long now = System.currentTimeMillis();
+        rotationTimestamps.removeIf(t -> now - t > windowMs);
+        return rotationTimestamps.size();
+    }
+}
+
+// ============== State export/import ==============
+
+final class ProxyRotatorStateExport {
+    private ProxyRotatorStateExport() {}
+    static Map<String, Object> exportState(ProxyRotatorEngine engine) {
+        Map<String, Object> m = new HashMap<>();
+        m.put("hubController", engine.getHubController());
