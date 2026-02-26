@@ -1623,3 +1623,68 @@ final class ProxyRotatorLoadBalancer {
     }
 
     public void recordDisconnect(String endpointId) {
+        AtomicLong c = connectionCount.get(endpointId);
+        if (c != null && c.get() > 0) c.decrementAndGet();
+    }
+}
+
+// ============== Hex and address helpers ==============
+
+final class ProxyRotatorHexUtils {
+    private ProxyRotatorHexUtils() {}
+    static String toHex(byte[] bytes) {
+        if (bytes == null) return "";
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) sb.append(String.format("%02x", b));
+        return sb.toString();
+    }
+    static String addressFromSeed(String seed) {
+        String h = ProxyRotatorCore.prxSha256Hex(seed);
+        return "0x" + (h.length() >= 40 ? h.substring(0, 40) : h + "0".repeat(40 - h.length()));
+    }
+}
+
+// ============== Endpoint metadata ==============
+
+final class EndpointMetadataDTO {
+    final String endpointId;
+    final Map<String, String> tags;
+    final long createdAtMs;
+
+    EndpointMetadataDTO(String endpointId, Map<String, String> tags, long createdAtMs) {
+        this.endpointId = endpointId;
+        this.tags = tags != null ? new HashMap<>(tags) : new HashMap<>();
+        this.createdAtMs = createdAtMs;
+    }
+}
+
+final class ProxyRotatorMetadataStore {
+    private final Map<String, EndpointMetadataDTO> store = new ConcurrentHashMap<>();
+
+    void put(String endpointId, Map<String, String> tags) {
+        store.put(endpointId, new EndpointMetadataDTO(endpointId, tags, System.currentTimeMillis()));
+    }
+
+    EndpointMetadataDTO get(String endpointId) {
+        return store.get(endpointId);
+    }
+
+    void remove(String endpointId) {
+        store.remove(endpointId);
+    }
+}
+
+// ============== Drain order ==============
+
+final class ProxyRotatorDrainOrder {
+    private ProxyRotatorDrainOrder() {}
+    static List<String> byRegionThenAge(ProxyRotatorEngine engine) {
+        List<String> ids = engine.getEndpointIds();
+        List<ProxySlotDTO> slots = new ArrayList<>();
+        for (String id : ids) {
+            ProxySlotDTO s = engine.getEndpoint(id);
+            if (s != null) slots.add(s);
+        }
+        slots.sort(Comparator.comparing((ProxySlotDTO s) -> s.regionCode).thenComparingLong(s -> s.lastRotatedAt));
+        List<String> out = new ArrayList<>();
+        for (ProxySlotDTO s : slots) out.add(s.endpointId);
