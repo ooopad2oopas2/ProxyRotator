@@ -518,3 +518,68 @@ final class ProxyRotatorEventLog {
     }
 }
 
+// ============== Region helpers ==============
+
+final class ProxyRotatorRegionHelper {
+    private ProxyRotatorRegionHelper() {}
+    static final String[] DEFAULT_REGION_CODES = { "NA-US", "NA-CA", "EU-DE", "EU-NL", "APAC-SG", "APAC-JP", "SA-BR", "OC-AU" };
+    static String regionCodeFromIndex(int index) {
+        if (index >= 0 && index < DEFAULT_REGION_CODES.length) return DEFAULT_REGION_CODES[index];
+        return "REG-" + index;
+    }
+    static int regionIndexFromCode(String code) {
+        for (int i = 0; i < DEFAULT_REGION_CODES.length; i++) {
+            if (DEFAULT_REGION_CODES[i].equals(code)) return i;
+        }
+        return -1;
+    }
+}
+
+// ============== Id generators ==============
+
+final class ProxyRotatorIdGen {
+    private static final AtomicLong counter = new AtomicLong(1000);
+    static String nextEndpointId() {
+        return "ep-" + counter.incrementAndGet() + "-" + ProxyRotatorCore.prxSha256Hex("ep" + System.nanoTime()).substring(0, 12);
+    }
+    static String slotIdFromHostPort(String host, int port) {
+        return ProxyRotatorCore.prxSha256Hex(host + ":" + port);
+    }
+}
+
+// ============== Extended views ==============
+
+final class ProxyRotatorEngineViews {
+    private ProxyRotatorEngineViews() {}
+    static List<ProxySlotDTO> getHealthyEndpoints(ProxyRotatorEngine engine) {
+        return engine.getEndpointIds().stream()
+            .map(engine::getEndpoint)
+            .filter(Objects::nonNull)
+            .filter(s -> s.healthy)
+            .collect(Collectors.toList());
+    }
+    static ProxySlotDTO getRandomSlot(ProxyRotatorEngine engine) {
+        List<String> ids = engine.getEndpointIds();
+        if (ids.isEmpty()) return null;
+        int idx = new SecureRandom().nextInt(ids.size());
+        return engine.getEndpoint(ids.get(idx));
+    }
+    static ProxySlotDTO getRandomSlotForRegion(ProxyRotatorEngine engine, int regionId) {
+        List<String> list = engine.getEndpointIdsByRegion(regionId, 0, ProxyRotatorCore.PRX_VIEW_PAGE);
+        if (list.isEmpty()) return null;
+        int idx = new SecureRandom().nextInt(list.size());
+        return engine.getEndpoint(list.get(idx));
+    }
+    static long totalRequestsAcrossPool(ProxyRotatorEngine engine) {
+        long sum = 0;
+        for (String id : engine.getEndpointIds()) {
+            ProxySlotDTO s = engine.getEndpoint(id);
+            if (s != null) sum += s.requestCount;
+        }
+        return sum;
+    }
+}
+
+// ============== Config ==============
+
+final class ProxyRotatorConfig {
