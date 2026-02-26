@@ -1038,3 +1038,68 @@ final class ProxyRotatorApiHandlersExtended {
         return ProxyRotatorSerialization.slotToMap(engine.getCurrentSlot());
     }
     static Map<String, Object> getHealthSummary(ProxyRotatorEngine engine) {
+        int healthy = 0;
+        int total = engine.endpointCount();
+        for (String id : engine.getEndpointIds()) {
+            ProxySlotDTO s = engine.getEndpoint(id);
+            if (s != null && s.healthy) healthy++;
+        }
+        Map<String, Object> m = new HashMap<>();
+        m.put("healthyCount", healthy);
+        m.put("totalCount", total);
+        m.put("healthyPct", total > 0 ? (100 * healthy / total) : 0);
+        return m;
+    }
+    static Map<String, Object> getPoolSummary(ProxyRotatorEngine engine) {
+        int healthy = 0;
+        for (String id : engine.getEndpointIds()) {
+            ProxySlotDTO s = engine.getEndpoint(id);
+            if (s != null && s.healthy) healthy++;
+        }
+        long totalReq = ProxyRotatorEngineViews.totalRequestsAcrossPool(engine);
+        PoolSummaryDTO dto = new PoolSummaryDTO(engine.endpointCount(), healthy, engine.regionCount(), totalReq, engine.getLastRotationAt());
+        Map<String, Object> m = new HashMap<>();
+        m.put("totalSlots", dto.totalSlots);
+        m.put("healthySlots", dto.healthySlots);
+        m.put("regionCount", dto.regionCount);
+        m.put("totalRequestsLastHour", dto.totalRequestsLastHour);
+        m.put("lastRotationEpochMs", dto.lastRotationEpochMs);
+        return m;
+    }
+    static List<Map<String, Object>> getEndpointsByRegion(ProxyRotatorEngine engine, int regionId) {
+        List<String> ids = engine.getEndpointIdsByRegion(regionId, 0, ProxyRotatorCore.PRX_VIEW_PAGE);
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (String id : ids) {
+            ProxySlotDTO s = engine.getEndpoint(id);
+            if (s != null) out.add(ProxyRotatorSerialization.slotToMap(s));
+        }
+        return out;
+    }
+}
+
+// ============== Pagination helpers ==============
+
+final class ProxyRotatorPagination {
+    private ProxyRotatorPagination() {}
+    static final int DEFAULT_PAGE_SIZE = 24;
+    static int safeOffset(int offset) { return Math.max(0, offset); }
+    static int safeLimit(int limit) {
+        if (limit <= 0) return DEFAULT_PAGE_SIZE;
+        return Math.min(limit, ProxyRotatorCore.PRX_VIEW_PAGE);
+    }
+    static int totalPages(int totalItems, int pageSize) {
+        if (pageSize <= 0) return 0;
+        return (totalItems + pageSize - 1) / pageSize;
+    }
+    static int pageStart(int page, int pageSize) { return page * pageSize; }
+}
+
+// ============== Region weight resolver ==============
+
+final class ProxyRotatorRegionWeight {
+    private final Map<Integer, Integer> regionWeightBps = new ConcurrentHashMap<>();
+    private final ProxyRotatorEngine engine;
+
+    ProxyRotatorRegionWeight(ProxyRotatorEngine engine) {
+        this.engine = engine;
+        for (Integer rid : engine.getRegionIds()) {
