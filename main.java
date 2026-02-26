@@ -778,3 +778,68 @@ final class WaveCommitter {
 
     public void commitWave(String waveId, String endpointId) {
         if (engine.endpointExists(endpointId)) {
+            committedWaves.add(waveId + ":" + endpointId);
+            ProxyRotatorEventLog.emit(PRX_EventName.WaveCommitted, waveId);
+        }
+    }
+
+    public List<String> getCommittedWaves(int offset, int limit) {
+        int size = committedWaves.size();
+        if (offset >= size) return Collections.emptyList();
+        int end = Math.min(offset + limit, size);
+        return new ArrayList<>(committedWaves.subList(offset, end));
+    }
+}
+
+// ============== Export constants ==============
+
+final class ProxyRotatorConstants {
+    static final int MAX_POOL_SIZE = ProxyRotatorCore.PRX_MAX_POOL_SIZE;
+    static final int MAX_REGIONS = ProxyRotatorCore.PRX_MAX_REGIONS;
+    static final int BATCH_ROTATE = ProxyRotatorCore.PRX_BATCH_ROTATE;
+    static final int VIEW_PAGE = ProxyRotatorCore.PRX_VIEW_PAGE;
+    static final String TIDE_SALT = ProxyRotatorCore.PRX_TIDE_SALT;
+    static final String WAVE_SEED = ProxyRotatorCore.PRX_WAVE_SEED;
+    static final String ANCHOR_RELAY = ProxyRotatorCore.PRX_ANCHOR_RELAY;
+    static final String TIDE_POOL = ProxyRotatorCore.PRX_TIDE_POOL;
+    static final String WAVE_GATE_ADDR = ProxyRotatorCore.PRX_WAVE_GATE;
+    static final String SURF_NEXUS = ProxyRotatorCore.PRX_SURF_NEXUS;
+}
+
+// ============== Integration adapter ==============
+
+final class ProxyRotatorIntegrationAdapter {
+    private final ProxyRotatorEngine engine;
+    private final SurfFromAnywhereRouter router;
+    private final TidePoolManager tidePool;
+    private final WaveGate waveGate;
+    private final AnchorRelay anchorRelay;
+    private final WaveCommitter waveCommitter;
+
+    ProxyRotatorIntegrationAdapter(ProxyRotatorEngine engine) {
+        this.engine = engine;
+        this.router = new SurfFromAnywhereRouter(engine, ProxyRotatorCore.PRX_ORACLE_RELAY);
+        this.tidePool = new TidePoolManager(engine, ProxyRotatorCore.PRX_CYCLER_KEEPER);
+        this.waveGate = new WaveGate(engine, ProxyRotatorCore.PRX_HUB_CONTROLLER);
+        this.anchorRelay = new AnchorRelay(engine, ProxyRotatorCore.PRX_ANCHOR_RELAY);
+        this.waveCommitter = new WaveCommitter(engine, ProxyRotatorCore.PRX_CYCLER_KEEPER);
+    }
+
+    public Map<String, Object> fullStatus() {
+        Map<String, Object> m = new HashMap<>();
+        m.put("engine", ProxyRotatorApiHandlers.getRotationStats(engine));
+        m.put("currentSlot", ProxyRotatorApiHandlers.getCurrentSlot(engine));
+        m.put("poolSize", tidePool.poolSize());
+        m.put("events", ProxyRotatorEventLog.getRecent(20));
+        return m;
+    }
+
+    public ProxySlotDTO route(String strategy, String regionCode) {
+        switch (strategy != null ? strategy : "roundRobin") {
+            case "region":
+                return router.routeByRegion(regionCode != null ? regionCode : "NA-US");
+            case "random":
+                return router.routeRandom();
+            case "healthy":
+                return router.routeHealthyOnly();
+            default:
