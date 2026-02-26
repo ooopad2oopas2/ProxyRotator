@@ -1558,3 +1558,68 @@ final class ProxyRotatorCircuitBreaker {
         this.resetWindowMs = resetWindowMs;
     }
 
+    public void recordSuccess(String endpointId) {
+        failureCount.put(endpointId, 0);
+    }
+
+    public void recordFailure(String endpointId) {
+        failureCount.merge(endpointId, 1, Integer::sum);
+    }
+
+    public boolean isOpen(String endpointId) {
+        return failureCount.getOrDefault(endpointId, 0) >= threshold;
+    }
+}
+
+// ============== Load balance strategies ==============
+
+enum ProxyRotatorLBStrategy {
+    ROUND_ROBIN,
+    RANDOM,
+    LEAST_CONNECTIONS,
+    REGION_AFFINITY,
+    WEIGHTED_REGION
+}
+
+final class ProxyRotatorLoadBalancer {
+    private final ProxyRotatorEngine engine;
+    private final ProxyRotatorRegionWeight regionWeight;
+    private final Map<String, AtomicLong> connectionCount = new ConcurrentHashMap<>();
+
+    ProxyRotatorLoadBalancer(ProxyRotatorEngine engine, ProxyRotatorRegionWeight regionWeight) {
+        this.engine = engine;
+        this.regionWeight = regionWeight;
+        for (String id : engine.getEndpointIds()) connectionCount.put(id, new AtomicLong(0));
+    }
+
+    public ProxySlotDTO select(ProxyRotatorLBStrategy strategy, String regionCode) {
+        switch (strategy) {
+            case ROUND_ROBIN:
+                engine.rotate(ProxyRotatorCore.PRX_CYCLER_KEEPER);
+                return engine.getCurrentSlot();
+            case RANDOM:
+                return ProxyRotatorEngineViews.getRandomSlot(engine);
+            case LEAST_CONNECTIONS:
+                return selectLeastConnections();
+            case REGION_AFFINITY:
+                return new SurfFromAnywhereRouter(engine, ProxyRotatorCore.PRX_ORACLE_RELAY).routeByRegion(regionCode != null ? regionCode : "NA-US");
+            case WEIGHTED_REGION:
+                return regionWeight.selectByWeight();
+            default:
+                return engine.getCurrentSlot();
+        }
+    }
+
+    private ProxySlotDTO selectLeastConnections() {
+        List<ProxySlotDTO> healthy = ProxyRotatorEngineViews.getHealthyEndpoints(engine);
+        if (healthy.isEmpty()) return engine.getCurrentSlot();
+        return healthy.stream()
+            .min(Comparator.comparingLong(s -> connectionCount.getOrDefault(s.endpointId, new AtomicLong(0)).get()))
+            .orElse(engine.getCurrentSlot());
+    }
+
+    public void recordConnection(String endpointId) {
+        connectionCount.computeIfAbsent(endpointId, k -> new AtomicLong(0)).incrementAndGet();
+    }
+
+    public void recordDisconnect(String endpointId) {
