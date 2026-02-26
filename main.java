@@ -1428,3 +1428,68 @@ interface ProxyRotatorListener {
     void onSlotRotated(ProxySlotDTO previous, ProxySlotDTO current);
     void onEndpointAdded(String endpointId);
     void onEndpointRemoved(String endpointId);
+}
+
+final class ProxyRotatorListenerRegistry {
+    private static final List<ProxyRotatorListener> listeners = Collections.synchronizedList(new ArrayList<>());
+
+    static void add(ProxyRotatorListener l) { if (l != null) listeners.add(l); }
+    static void remove(ProxyRotatorListener l) { listeners.remove(l); }
+
+    static void notifySlotRotated(ProxySlotDTO prev, ProxySlotDTO curr) {
+        for (ProxyRotatorListener l : new ArrayList<>(listeners)) {
+            try { l.onSlotRotated(prev, curr); } catch (Exception ignored) {}
+        }
+    }
+    static void notifyEndpointAdded(String id) {
+        for (ProxyRotatorListener l : new ArrayList<>(listeners)) {
+            try { l.onEndpointAdded(id); } catch (Exception ignored) {}
+        }
+    }
+    static void notifyEndpointRemoved(String id) {
+        for (ProxyRotatorListener l : new ArrayList<>(listeners)) {
+            try { l.onEndpointRemoved(id); } catch (Exception ignored) {}
+        }
+    }
+}
+
+// ============== More region codes ==============
+
+final class ProxyRotatorRegionCodes {
+    private ProxyRotatorRegionCodes() {}
+    static final String NA_US = "NA-US";
+    static final String NA_CA = "NA-CA";
+    static final String EU_DE = "EU-DE";
+    static final String EU_NL = "EU-NL";
+    static final String EU_UK = "EU-UK";
+    static final String APAC_SG = "APAC-SG";
+    static final String APAC_JP = "APAC-JP";
+    static final String APAC_IN = "APAC-IN";
+    static final String SA_BR = "SA-BR";
+    static final String OC_AU = "OC-AU";
+    static final String AF_ZA = "AF-ZA";
+    static String[] all() {
+        return new String[] { NA_US, NA_CA, EU_DE, EU_NL, EU_UK, APAC_SG, APAC_JP, APAC_IN, SA_BR, OC_AU, AF_ZA };
+    }
+}
+
+// ============== Slot index helpers ==============
+
+final class ProxyRotatorSlotIndex {
+    private ProxyRotatorSlotIndex() {}
+    static int currentIndex(ProxyRotatorEngine engine) {
+        int size = engine.endpointCount();
+        if (size == 0) return -1;
+        return (engine.getTotalRotations() % size + size) % size;
+    }
+    static String endpointIdAt(ProxyRotatorEngine engine, int index) {
+        List<String> ids = engine.getEndpointIds();
+        if (index < 0 || index >= ids.size()) return null;
+        return ids.get(index);
+    }
+}
+
+// ============== Warmup helper ==============
+
+final class ProxyRotatorWarmup {
+    private ProxyRotatorWarmup() {}
