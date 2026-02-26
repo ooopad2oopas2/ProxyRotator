@@ -1688,3 +1688,54 @@ final class ProxyRotatorDrainOrder {
         slots.sort(Comparator.comparing((ProxySlotDTO s) -> s.regionCode).thenComparingLong(s -> s.lastRotatedAt));
         List<String> out = new ArrayList<>();
         for (ProxySlotDTO s : slots) out.add(s.endpointId);
+        return out;
+    }
+}
+
+// ============== Health window ==============
+
+final class ProxyRotatorHealthWindow {
+    private final Map<String, List<Boolean>> window = new ConcurrentHashMap<>();
+    private final int windowSize;
+
+    ProxyRotatorHealthWindow(int windowSize) {
+        this.windowSize = Math.max(1, windowSize);
+    }
+
+    void record(String endpointId, boolean healthy) {
+        window.compute(endpointId, (k, list) -> {
+            if (list == null) list = new ArrayList<>();
+            list.add(healthy);
+            while (list.size() > windowSize) list.remove(0);
+            return list;
+        });
+    }
+
+    double healthyRatio(String endpointId) {
+        List<Boolean> list = window.get(endpointId);
+        if (list == null || list.isEmpty()) return 1.0;
+        long t = list.stream().filter(b -> b).count();
+        return (double) t / list.size();
+    }
+}
+
+// ============== Main extended ==============
+
+class ProxyRotatorMainExtended {
+    public static void main(String[] args) {
+        ProxyRotatorEngine engine = ProxyRotatorSafeLauncher.launchWithDefaults();
+        ProxyRotatorWarmup.warmupPool(engine, ProxyRotatorCore.PRX_HUB_CONTROLLER, 8);
+        ProxyRotatorRegionWeight weights = new ProxyRotatorRegionWeight(engine);
+        for (Integer rid : engine.getRegionIds()) {
+            weights.setWeight(rid, 800 + new SecureRandom().nextInt(400));
+        }
+        ProxyRotatorIntegrationAdapter adapter = new ProxyRotatorIntegrationAdapter(engine);
+        Map<String, Object> status = adapter.fullStatus();
+        System.out.println("ProxyRotator extended run. Pool size: " + engine.endpointCount());
+        System.out.println("Status keys: " + status.keySet());
+        System.out.println("Pool summary: " + ProxyRotatorApiHandlersExtended.getPoolSummary(engine));
+    }
+}
+
+// ============== End of ProxyRotator.java ==============
+
